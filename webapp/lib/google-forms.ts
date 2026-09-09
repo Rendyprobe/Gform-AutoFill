@@ -1,4 +1,4 @@
-export type QuestionType = 'short' | 'paragraph' | 'multipleChoice' | 'dropdown' | 'checkboxes' | 'scale' | 'unsupported';
+export type QuestionType = 'short' | 'paragraph' | 'multipleChoice' | 'dropdown' | 'checkboxes' | 'scale' | 'rating' | 'unsupported';
 
 export type FormQuestion = {
   id: string;
@@ -33,6 +33,7 @@ const typeMap: Record<number, QuestionType> = {
   3: 'dropdown',
   4: 'checkboxes',
   5: 'scale',
+  18: 'rating',
 };
 
 function cleanText(value: unknown): string {
@@ -138,7 +139,7 @@ export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
       type,
       required: Boolean(definition[2]),
       options,
-      ...(type === 'scale' && options.length ? { min: Number(options[0]), max: Number(options.at(-1)) } : {}),
+      ...(['scale', 'rating'].includes(type) && options.length ? { min: Number(options[0]), max: Number(options.at(-1)) } : {}),
     });
     if (type === 'unsupported') warnings.push(`“${title}” memakai tipe pertanyaan yang belum didukung.`);
   }
@@ -169,7 +170,7 @@ export function validateAnswer(question: FormQuestion, answer: unknown): string 
   if (values.length === 0) return null;
   if (question.type === 'unsupported') return 'Tipe pertanyaan belum didukung.';
   if (question.type === 'checkboxes' && !Array.isArray(answer)) return 'Pisahkan beberapa pilihan dengan tanda |.';
-  if (['multipleChoice', 'dropdown', 'checkboxes', 'scale'].includes(question.type)) {
+  if (['multipleChoice', 'dropdown', 'checkboxes', 'scale', 'rating'].includes(question.type)) {
     const invalid = values.find((value) => !question.options.includes(value));
     if (invalid) return `Pilihan tidak valid: ${invalid}`;
   }

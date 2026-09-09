@@ -94,6 +94,7 @@ Didukung pada versi awal:
 - Dropdown.
 - Kotak centang.
 - Skala linear.
+- Rating (termasuk skala 1–10).
 - Form dengan beberapa bagian yang berjalan lurus.
 
 Belum didukung:

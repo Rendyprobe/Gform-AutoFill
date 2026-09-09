@@ -159,6 +159,8 @@ export default function Home() {
 
   const completed = results.filter((result) => result.status !== 'pending').length;
   const progress = rows.length ? Math.round((completed / rows.length) * 100) : 0;
+  const formBlocked = schema ? !schema.supported : false;
+  const validationReady = issues.length === 0 && !formBlocked;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -221,12 +223,13 @@ export default function Home() {
           </>}
 
           {step === 3 && schema && <>
-            <PageHeading eyebrow="Langkah 3 dari 4" title={issues.length ? 'Ada data yang perlu diperbaiki' : 'Data siap dijalankan'} description={`${fileName} • ${rows.length} baris respons ditemukan`} />
-            <Card className="app-card"><CardContent className="p-0"><SectionBar title="Hasil validasi" trailing={issues.length ? <Badge variant="destructive">{issues.length} masalah</Badge> : <Badge className="bg-emerald-600">Semua valid</Badge>} />
+            <PageHeading eyebrow="Langkah 3 dari 4" title={formBlocked ? 'Form belum dapat dijalankan' : issues.length ? 'Ada data yang perlu diperbaiki' : 'Data siap dijalankan'} description={`${fileName} • ${rows.length} baris respons ditemukan`} />
+            <Card className="app-card"><CardContent className="p-0"><SectionBar title="Hasil validasi" trailing={formBlocked ? <Badge variant="destructive">Form belum didukung</Badge> : issues.length ? <Badge variant="destructive">{issues.length} masalah</Badge> : <Badge className="bg-emerald-600">Semua valid</Badge>} />
               <div className="space-y-6 p-6 sm:p-8">
+                {formBlocked && <Alert className="border-red-200 bg-red-50 text-red-950"><AlertTriangle className="size-4" /><AlertTitle>Excel valid, tetapi struktur form belum didukung</AlertTitle><AlertDescription><p className="mt-1">Tombol Lanjutkan dinonaktifkan agar aplikasi tidak mengirim respons yang tidak lengkap.</p>{schema.warnings.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5">{schema.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}</AlertDescription></Alert>}
                 {issues.length > 0 && <Alert className="border-amber-200 bg-amber-50 text-amber-950"><AlertTriangle className="size-4" /><AlertTitle>Perbaiki Excel lalu unggah ulang</AlertTitle><AlertDescription><ul className="mt-2 space-y-1">{issues.slice(0, 8).map((issue, index) => <li key={`${issue.row}-${issue.column}-${index}`}>{issue.row ? `Baris ${issue.row}, ` : ''}{issue.column}: {issue.message}</li>)}</ul>{issues.length > 8 && <p className="mt-2">...dan {issues.length - 8} masalah lainnya.</p>}</AlertDescription></Alert>}
                 <div className="overflow-auto rounded-xl border border-border"><Table><TableHeader><TableRow><TableHead>Baris</TableHead><TableHead>Test Case ID</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{rows.slice(0, 12).map((row) => { const rowIssues = issues.filter((issue) => issue.row === row.rowNumber); return <TableRow key={`${row.rowNumber}-${row.testCaseId}`}><TableCell>{row.rowNumber}</TableCell><TableCell className="font-medium">{row.testCaseId || '—'}</TableCell><TableCell>{rowIssues.length ? <Badge variant="destructive">{rowIssues.length} error</Badge> : <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">Valid</Badge>}</TableCell></TableRow>; })}</TableBody></Table></div>
-                <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><Label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium hover:bg-muted"><Upload className="size-4" /> Unggah ulang<input className="sr-only" type="file" accept=".xlsx" onChange={(event) => uploadWorkbook(event.target.files?.[0])} /></Label><Button disabled={issues.length > 0 || !schema.supported} onClick={() => setStep(4)} className="gap-2">Lanjutkan <ArrowRight className="size-4" /></Button></div>
+                <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><Label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium hover:bg-muted"><Upload className="size-4" /> Unggah ulang<input className="sr-only" type="file" accept=".xlsx" onChange={(event) => uploadWorkbook(event.target.files?.[0])} /></Label><Button disabled={!validationReady} onClick={() => setStep(4)} className="gap-2">Lanjutkan <ArrowRight className="size-4" /></Button></div>
               </div>
             </CardContent></Card>
           </>}
