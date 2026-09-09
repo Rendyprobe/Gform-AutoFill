@@ -1,0 +1,14 @@
+# Local dependencies and generated files
+/node_modules/
+/outputs/
+
+# Logs and local secrets
+*.log
+.env
+.env.*
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
