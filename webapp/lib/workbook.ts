@@ -98,7 +98,6 @@ export async function parseWorkbook(file: File, activeSchema: FormSchema) {
   const rows: TestRow[] = [];
   const issues: ValidationIssue[] = [];
   const seen = new Set<string>();
-  if (responseSheet.rowCount > 1000) throw new Error('Sheet memiliki terlalu banyak baris. Hapus baris atau format kosong di bawah data lalu coba lagi.');
   for (let rowNumber = 2; rowNumber <= responseSheet.rowCount; rowNumber += 1) {
     const row = responseSheet.getRow(rowNumber);
     const testCaseId = cellText(row.getCell(1));
@@ -122,6 +121,5 @@ export async function parseWorkbook(file: File, activeSchema: FormSchema) {
     rows.push({ testCaseId, rowNumber, answers });
   }
   if (!rows.length) throw new Error('Tidak ada baris respons yang diisi.');
-  if (rows.length > 25) issues.push({ row: 0, column: 'File', message: `Ditemukan ${rows.length} baris. Maksimal 25 respons per job.` });
   return { rows, issues };
 }

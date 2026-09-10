@@ -22,8 +22,7 @@ import type { FormSchema } from '@/lib/google-forms';
 import { downloadTemplate, parseWorkbook, type TestRow, type ValidationIssue } from '@/lib/workbook';
 
 const steps = ['Pilih form', 'Isi Excel', 'Validasi', 'Jalankan'];
-type RunStatus = 'pending' | 'sent' | 'failed' | 'unknown' | 'skipped';
-type RunResult = { testCaseId: string; status: RunStatus; message: string };
+import { prepareResume, type RunStatus, type RunResult } from '@/lib/run-results';
 
 declare global {
   interface Document {
@@ -41,7 +40,7 @@ declare global {
 }
 
 function statusBadge(status: RunStatus) {
-  const labels: Record<RunStatus, string> = { pending: 'Menunggu', sent: 'Terkirim', failed: 'Gagal', unknown: 'Periksa manual', skipped: 'Dilewati' };
+  const labels: Record<RunStatus, string> = { pending: 'Menunggu', sent: 'Terkirim', failed: 'Gagal', unknown: 'Belum terverifikasi', skipped: 'Dilewati' };
   const classes: Record<RunStatus, string> = {
     pending: 'border-slate-200 bg-slate-50 text-slate-700', sent: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     failed: 'border-red-200 bg-red-50 text-red-800', unknown: 'border-amber-200 bg-amber-50 text-amber-900',
@@ -136,25 +135,26 @@ export default function Home() {
     setBusy(true); setError('');
     try {
       if (!file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Pilih file .xlsx yang dibuat oleh aplikasi ini.');
-      if (file.size > 10 * 1024 * 1024) throw new Error('Ukuran file maksimal 10 MB.');
       const parsed = await parseWorkbook(file, schema);
       const sentTestCases = readSentTestCases(schema.schemaHash);
       const duplicateIssues = parsed.rows
         .filter((row) => sentTestCases.has(row.testCaseId))
-        .map((row) => ({ row: row.rowNumber, column: 'Test Case ID', message: 'Sudah terkirim pada sesi browser ini. Gunakan ID baru untuk mencegah duplikasi.' }));
+        .map((row) => ({ row: row.rowNumber, column: 'Test Case ID', message: 'Sudah dikirim atau hasilnya belum pasti pada sesi browser ini. Baris ini tidak dijalankan ulang untuk mencegah duplikasi.' }));
       setFileName(file.name); setRows(parsed.rows); setIssues([...parsed.issues, ...duplicateIssues]); setResults([]); setStep(3);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Excel tidak dapat dibaca.'); }
     finally { setBusy(false); }
   }
 
-  async function runJob() {
-    if (!schema || issues.length || !rows.length) return;
+  async function runJob(resume = false) {
+    if (busy || !schema || !schema.supported || issues.length || !rows.length) return;
     stopRef.current = false; setBusy(true); setError(''); setStep(4);
-    const next: RunResult[] = rows.map((row) => ({ testCaseId: row.testCaseId, status: 'pending', message: 'Menunggu giliran.' }));
+    const next: RunResult[] = resume ? prepareResume(results) : rows.map((row) => ({ testCaseId: row.testCaseId, status: 'pending', message: 'Menunggu giliran.' }));
     setResults([...next]);
+    if (resume) await new Promise((resolve) => window.setTimeout(resolve, Math.max(2, delaySeconds) * 1000));
     for (let index = 0; index < rows.length; index += 1) {
+      if (next[index].status !== 'pending') continue;
       if (stopRef.current) {
-        for (let skipped = index; skipped < next.length; skipped += 1) next[skipped] = { ...next[skipped], status: 'skipped', message: 'Job dihentikan pengguna.' };
+        for (let skipped = index; skipped < next.length; skipped += 1) if (next[skipped].status === 'pending') next[skipped] = { ...next[skipped], status: 'skipped', message: 'Job dihentikan pengguna.' };
         setResults([...next]); break;
       }
       try {
@@ -165,17 +165,14 @@ export default function Home() {
         const data = await response.json() as { status?: RunStatus; message?: string; error?: string };
         const status: RunStatus = data.status || (response.ok ? 'unknown' : 'failed');
         next[index] = { testCaseId: rows[index].testCaseId, status, message: data.message || data.error || 'Tidak ada pesan hasil.' };
-        if (status === 'sent') rememberSentTestCase(schema.schemaHash, rows[index].testCaseId);
         setResults([...next]);
-        if (status === 'unknown') {
-          stopRef.current = true;
-          for (let skipped = index + 1; skipped < next.length; skipped += 1) next[skipped] = { ...next[skipped], status: 'skipped', message: 'Dihentikan karena status respons sebelumnya tidak pasti.' };
-          setResults([...next]); break;
-        }
       } catch {
-        next[index] = { testCaseId: rows[index].testCaseId, status: 'unknown', message: 'Koneksi terputus. Periksa form sebelum mencoba ulang.' };
-        for (let skipped = index + 1; skipped < next.length; skipped += 1) next[skipped] = { ...next[skipped], status: 'skipped', message: 'Dihentikan untuk mencegah duplikasi.' };
-        setResults([...next]); break;
+        next[index] = { testCaseId: rows[index].testCaseId, status: 'unknown', message: 'Koneksi terputus. Otomatis lanjut; baris ini tidak dikirim ulang.' };
+        setResults([...next]);
+      }
+      if (next[index].status === 'sent' || next[index].status === 'unknown') {
+        try { rememberSentTestCase(schema.schemaHash, rows[index].testCaseId); }
+        catch { setError('Penyimpanan sesi tidak tersedia. Hasil tetap tampil, tetapi pencegahan duplikasi setelah reload tidak tersedia.'); }
       }
       if (index < rows.length - 1 && !stopRef.current) await new Promise((resolve) => window.setTimeout(resolve, Math.max(2, delaySeconds) * 1000));
     }
@@ -251,7 +248,7 @@ export default function Home() {
                 <div className="max-h-60 overflow-auto rounded-xl border border-border"><Table><TableHeader><TableRow><TableHead>Kode</TableHead><TableHead>Pertanyaan</TableHead><TableHead>Tipe</TableHead></TableRow></TableHeader><TableBody>{schema.questions.map((question) => <TableRow key={question.columnKey}><TableCell className="font-mono text-xs">{question.columnKey}</TableCell><TableCell>{question.title}{question.required && <span className="ml-1 text-red-600">*</span>}</TableCell><TableCell><Badge variant="outline">{questionTypeLabel(question.type)}</Badge></TableCell></TableRow>)}</TableBody></Table></div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Button variant="outline" size="lg" className="h-auto justify-start gap-3 p-4" onClick={() => downloadTemplate(schema)}><Download className="size-5 text-primary" /><span className="text-left"><span className="block font-semibold">Unduh template Excel</span><span className="block text-xs font-normal text-muted-foreground">Sudah berisi pilihan dan satu contoh</span></span></Button>
-                  <Label className="flex h-auto cursor-pointer items-center justify-start gap-3 rounded-lg bg-primary p-4 text-primary-foreground hover:bg-primary/90"><Upload className="size-5" /><span><span className="block font-semibold">Unggah Excel yang sudah diisi</span><span className="block text-xs font-normal opacity-80">Maksimal 10 MB dan 25 baris</span></span><input className="sr-only" type="file" accept=".xlsx" onChange={(event) => uploadWorkbook(event.target.files?.[0])} /></Label>
+                  <Label className="flex h-auto cursor-pointer items-center justify-start gap-3 rounded-lg bg-primary p-4 text-primary-foreground hover:bg-primary/90"><Upload className="size-5" /><span><span className="block font-semibold">Unggah Excel yang sudah diisi</span><span className="block text-xs font-normal opacity-80">Pilih file template .xlsx yang sudah diisi</span></span><input className="sr-only" type="file" accept=".xlsx" onChange={(event) => uploadWorkbook(event.target.files?.[0])} /></Label>
                 </div>
                 <Button variant="ghost" onClick={() => setStep(1)} className="gap-2"><ArrowLeft className="size-4" /> Ganti form</Button>
               </div>
@@ -275,7 +272,8 @@ export default function Home() {
             <Card className="app-card"><CardContent className="p-0"><SectionBar title="Kontrol job" trailing={busy ? <Badge className="bg-violet-600">Sedang berjalan</Badge> : results.length ? <Badge variant="secondary">Selesai</Badge> : undefined} />
               <div className="space-y-6 p-6 sm:p-8">
                 {!results.length && <><CompatibilityNote compact /><div className="grid gap-4 sm:grid-cols-3"><Metric label="Jumlah respons" value={String(rows.length)} /><div className="rounded-xl border border-border bg-muted/45 p-4"><Label htmlFor="delay" className="text-xs font-medium text-muted-foreground">Jeda antarrespons</Label><div className="mt-1 flex items-center gap-2"><Input id="delay" type="number" min={2} max={60} value={delaySeconds} onChange={(event) => setDelaySeconds(Math.min(60, Math.max(2, Number(event.target.value))))} className="h-9 w-20 bg-background" /><span className="text-sm">detik</span></div></div><Metric label="Estimasi" value={`${Math.max(0, (rows.length - 1) * delaySeconds)} detik`} /></div>
-                  <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><Button variant="ghost" onClick={() => setStep(3)} className="gap-2"><ArrowLeft className="size-4" /> Kembali</Button><AlertDialog><AlertDialogTrigger render={<Button className="gap-2" />}><Play className="size-4" /> Tinjau dan jalankan</AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Kirim {rows.length} respons uji?</AlertDialogTitle><AlertDialogDescription>Respons akan dikirim ke “{schema.title}” dengan jeda {delaySeconds} detik. Pastikan form memang menerima pengisian berulang dan kamu berwenang mengujinya.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={runJob}>Ya, jalankan</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div></>}
+                  <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><Button variant="ghost" onClick={() => setStep(3)} className="gap-2"><ArrowLeft className="size-4" /> Kembali</Button><AlertDialog><AlertDialogTrigger render={<Button className="gap-2" />}><Play className="size-4" /> Tinjau dan jalankan</AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Kirim {rows.length} respons uji?</AlertDialogTitle><AlertDialogDescription>Respons akan dikirim ke “{schema.title}” dengan jeda {delaySeconds} detik. Pastikan form memang menerima pengisian berulang dan kamu berwenang mengujinya.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => runJob()}>Ya, jalankan</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div></>}
+                {!busy && results.some((result) => result.status === 'skipped') && <Button onClick={() => runJob(true)} className="gap-2"><Play className="size-4" /> Lanjutkan {results.filter((result) => result.status === 'skipped').length} respons yang dilewati</Button>}
                 {results.length > 0 && <><div className="space-y-2"><div className="flex justify-between text-sm"><span>{completed} dari {rows.length} selesai</span><span className="font-semibold">{progress}%</span></div><Progress value={progress} /></div><div className="overflow-auto rounded-xl border border-border"><Table><TableHeader><TableRow><TableHead>Test Case ID</TableHead><TableHead>Status</TableHead><TableHead>Pesan</TableHead></TableRow></TableHeader><TableBody>{results.map((result) => <TableRow key={result.testCaseId}><TableCell className="font-medium">{result.testCaseId}</TableCell><TableCell>{statusBadge(result.status)}</TableCell><TableCell className="max-w-md text-sm text-muted-foreground">{result.message}</TableCell></TableRow>)}</TableBody></Table></div><div className="flex flex-wrap justify-between gap-3">{busy ? <Button variant="destructive" onClick={() => { stopRef.current = true; }} className="gap-2"><CircleStop className="size-4" /> Hentikan setelah respons ini</Button> : <Button variant="ghost" onClick={resetAll} className="gap-2"><RotateCcw className="size-4" /> Mulai job baru</Button>}<Button variant="outline" onClick={downloadReport} disabled={busy} className="gap-2"><FileCheck2 className="size-4" /> Unduh laporan CSV</Button></div></>}
               </div>
             </CardContent></Card>
@@ -299,5 +297,5 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function CompatibilityNote({ compact = false }: { compact?: boolean }) {
-  return <div className="compatibility-note"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-amber-700" /><div><p className="font-semibold text-amber-950">Hanya untuk form yang bisa diisi berulang</p>{!compact && <p className="mt-1 text-sm leading-6 text-amber-900/80">Form harus satu bagian, dapat dibuka tanpa login, dan pengaturan “Batasi ke 1 respons” harus nonaktif. Login, CAPTCHA, dan upload file tidak didukung.</p>}</div></div>;
+  return <div className="compatibility-note"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-amber-700" /><div><p className="font-semibold text-amber-950">Hanya untuk form yang bisa diisi berulang</p>{!compact && <p className="mt-1 text-sm leading-6 text-amber-900/80">Form dapat memiliki 1 atau 2 bagian berurutan tanpa percabangan, dapat dibuka tanpa login, dan pengaturan “Batasi ke 1 respons” harus nonaktif. Login, CAPTCHA, dan upload file tidak didukung.</p>}</div></div>;
 }

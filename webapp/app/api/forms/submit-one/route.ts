@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { fetchFormSchema, validateAnswer } from '@/lib/google-forms';
+import { buildSubmissionParams, fetchFormSchema } from '@/lib/google-forms';
+import { sendFormResponse } from '@/lib/form-submission';
 import { readJsonBody } from '@/lib/request-safety';
 
 type SubmissionBody = {
@@ -11,8 +12,6 @@ type SubmissionBody = {
 
 const lastSubmissionByForm = new Map<string, number>();
 const minimumIntervalMs = 1900;
-const submitTimeoutMs = 20_000;
-const maxConfirmationCharacters = 2 * 1024 * 1024;
 
 export async function POST(request: Request) {
   try {
@@ -39,45 +38,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: 'failed', error: 'Pengiriman terlalu cepat. Tunggu minimal 2 detik.' }, { status: 429 });
     }
 
-    const params = new URLSearchParams();
-    params.set('fvv', '1');
-    params.set('pageHistory', Array.from({ length: schema.pageCount }, (_, index) => index).join(','));
+    const params = buildSubmissionParams(schema, body.answers);
 
-    for (const question of schema.questions) {
-      const answer = body.answers[question.columnKey];
-      const problem = validateAnswer(question, answer);
-      if (problem) throw new Error(`${question.columnKey} — ${problem}`);
-      const values = Array.isArray(answer) ? answer : [answer];
-      for (const value of values) {
-        if (String(value ?? '').trim()) params.append(`entry.${question.entryId}`, String(value).trim());
-      }
-    }
-
-    let googleResponse: Response;
-    try {
-      lastSubmissionByForm.set(schema.formId, Date.now());
-      googleResponse = await fetch(schema.responseUrl, {
-        method: 'POST',
-        redirect: 'follow',
-        headers: {
-          'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
-          'accept-language': 'id,en;q=0.8',
-        },
-        body: params.toString(),
-        signal: AbortSignal.timeout(submitTimeoutMs),
-      });
-    } catch {
-      return NextResponse.json({ status: 'unknown', message: 'Koneksi terputus saat mengirim. Periksa respons form sebelum mencoba ulang.' });
-    }
-
-    const responseText = await googleResponse.text();
-    if (responseText.length > maxConfirmationCharacters) throw new Error('Halaman konfirmasi terlalu besar untuk diverifikasi.');
-    if (!googleResponse.ok) throw new Error(`Google menolak respons (HTTP ${googleResponse.status}).`);
-    const successMarker = /Jawaban Anda telah direkam|Respons Anda telah direkam|Your response has been recorded/i.test(responseText);
-    if (!successMarker) {
-      return NextResponse.json({ status: 'unknown', message: 'Google menerima permintaan, tetapi halaman konfirmasi tidak dikenali. Jangan kirim ulang sebelum memeriksa form.' });
-    }
-    return NextResponse.json({ status: 'sent', message: 'Respons uji berhasil dikirim.' });
+    lastSubmissionByForm.set(schema.formId, Date.now());
+    return NextResponse.json(await sendFormResponse(schema.responseUrl, params));
   } catch (error) {
     return NextResponse.json({ status: 'failed', error: error instanceof Error ? error.message : 'Pengiriman gagal.' }, { status: 400 });
   }

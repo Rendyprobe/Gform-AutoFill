@@ -13,7 +13,7 @@ Pastikan pengaturan form memenuhi semua syarat berikut:
 - Opsi **Batasi ke 1 respons** atau **Limit to 1 response** dalam keadaan nonaktif.
 - Form tidak menggunakan upload file.
 - Form tidak menampilkan CAPTCHA.
-- Form hanya terdiri dari satu bagian. Form multi-bagian diblokir sementara sampai alurnya dapat diverifikasi dengan aman.
+- Form terdiri dari 1 atau 2 bagian berurutan tanpa percabangan. Setelah pembaruan ini, baca ulang form dan unduh template baru untuk form dua bagian.
 
 Jangan memakai aplikasi ini untuk form pihak lain tanpa izin, membuat respons yang disamarkan sebagai responden nyata, atau memanipulasi hasil survei. Setiap baris sebaiknya memakai `Test Case ID` dengan awalan `TEST-` agar respons pengujian mudah dikenali.
 
@@ -75,18 +75,20 @@ Biarkan jendela terminal tetap terbuka selama aplikasi dipakai.
 - Pilihan harus sama persis dengan opsi dari Google Form.
 - Untuk pertanyaan kotak centang, pisahkan beberapa pilihan menggunakan karakter `|`.
 - Baris yang seluruhnya kosong akan diabaikan.
-- Maksimal 25 baris respons per file.
-- Maksimal ukuran file 10 MB.
+- Aplikasi tidak menetapkan batas jumlah baris atau ukuran file Excel.
 - Formula dan macro tidak didukung untuk data respons.
 
 ## Status hasil
 
 - **Terkirim:** halaman konfirmasi Google berhasil dikenali.
 - **Gagal:** respons ditolak sebelum atau saat pengiriman; pesan error ditampilkan.
-- **Periksa manual:** permintaan mungkin sudah diterima, tetapi hasil akhirnya tidak dapat dipastikan. Job langsung dihentikan untuk mencegah duplikasi.
-- **Dilewati:** baris tidak dijalankan karena pengguna menghentikan job atau respons sebelumnya berstatus tidak pasti.
+- **Belum terverifikasi:** permintaan mungkin sudah diterima, tetapi penyimpanan jawabannya belum dapat dipastikan. Job otomatis lanjut tanpa meminta konfirmasi dan tanpa mengirim ulang baris tersebut.
+- **Dilewati:** baris tidak dijalankan karena pengguna menghentikan job. Tombol Lanjutkan memproses hanya baris yang dilewati.
 
-Jangan langsung mengulang baris berstatus **Periksa manual**. Periksa tab Respons pada Google Form terlebih dahulu.
+Baris Terkirim dan Belum terverifikasi dicatat dalam sesi browser untuk mencegah pengiriman ganda.
+Pembacaan form memakai timeout 30 detik dan satu percobaan ulang jika koneksi gagal.
+Timeout pembacaan sebelum pengiriman ditandai Gagal dengan pesan bahwa respons belum dikirim.
+Timeout setelah pengiriman dimulai ditandai Belum terverifikasi. Pengiriman jawaban tidak diulang otomatis.
 
 ## Tipe pertanyaan
 
@@ -108,7 +110,7 @@ Belum didukung:
 - CAPTCHA.
 - Grid pilihan ganda atau grid kotak centang.
 - Tanggal dan waktu.
-- Form dengan beberapa bagian, termasuk yang memiliki percabangan.
+- Form dengan lebih dari 2 bagian.
 - Percabangan bagian berdasarkan jawaban.
 - Form yang tidak dipublikasikan.
 
@@ -142,9 +144,11 @@ Struktur form berubah setelah template dibuat. Kembali ke langkah pertama, baca 
 
 Pastikan tulisan di Excel sama persis dengan pilihan pada form. Cara paling aman adalah menggunakan dropdown yang tersedia di template.
 
-### Status Periksa manual
+### Status Belum terverifikasi
 
-Buka Google Form sebagai pemilik dan periksa daftar respons. Jangan menekan jalankan ulang sebelum mengetahui apakah baris tersebut sudah masuk.
+Aplikasi otomatis melanjutkan baris berikutnya. Status ini tidak berarti gagal atau
+membuktikan jawaban sudah tersimpan. Tidak ada konfirmasi per baris yang perlu diklik.
+Hasil tetap tercatat di laporan CSV dan baris tersebut tidak dikirim ulang otomatis.
 
 ### Port 3000 sudah dipakai
 

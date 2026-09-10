@@ -8,6 +8,7 @@ export type FormQuestion = {
   type: QuestionType;
   required: boolean;
   options: string[];
+  sectionIndex?: number;
   min?: number;
   max?: number;
 };
@@ -36,7 +37,7 @@ const typeMap: Record<number, QuestionType> = {
   18: 'rating',
 };
 
-const formFetchTimeoutMs = 15_000;
+const formFetchTimeoutMs = 30_000;
 const maxFormHtmlCharacters = 5 * 1024 * 1024;
 
 function cleanText(value: unknown): string {
@@ -100,23 +101,33 @@ function optionsFrom(definition: unknown): string[] {
 
 export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
   const normalized = normalizeFormUrl(inputUrl);
-  let response: Response;
-  try {
-    response = await fetch(normalized.formUrl, {
-      redirect: 'follow',
-      headers: { 'user-agent': 'Gform-AutoFill/0.1 (+local testing tool)' },
-      signal: AbortSignal.timeout(formFetchTimeoutMs),
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === 'TimeoutError') throw new Error('Google Form tidak merespons dalam 15 detik.');
-    throw new Error('Google Form tidak dapat dihubungi. Periksa koneksi internet lalu coba lagi.');
+  let response: Response | undefined;
+  let html = '';
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetch(normalized.formUrl, {
+        redirect: 'follow',
+        headers: { 'user-agent': 'Gform-AutoFill/0.1 (+local testing tool)' },
+        signal: AbortSignal.timeout(formFetchTimeoutMs),
+      });
+      html = await response.text();
+      break;
+    } catch (error) {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
+      const timedOut = error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
+      throw new Error(timedOut
+        ? 'Pembacaan Google Form timeout setelah 2 percobaan (30 detik per percobaan). Respons belum dikirim.'
+        : 'Google Form tidak dapat dibaca setelah 2 percobaan. Respons belum dikirim.');
+    }
   }
-  if (!response.ok) throw new Error(`Google Form tidak dapat dibuka (HTTP ${response.status}).`);
+  if (!response || !response.ok) throw new Error(`Google Form tidak dapat dibuka (HTTP ${response?.status}). Respons belum dikirim.`);
   if (new URL(response.url).hostname !== 'docs.google.com') {
-    throw new Error('Form mengarahkan ke halaman login. Form seperti ini belum didukung.');
+    throw new Error('Form mengarahkan ke halaman login. Respons belum dikirim.');
   }
 
-  const html = await response.text();
   if (html.length > maxFormHtmlCharacters) throw new Error('Ukuran Google Form terlalu besar untuk diproses dengan aman.');
   const root = extractLoadData(html);
   const form = root[1] as unknown[];
@@ -124,17 +135,23 @@ export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
   const warnings: string[] = [];
   const questions: FormQuestion[] = [];
   let sections = 0;
+  let hasBranching = false;
 
   for (const item of items) {
     if (!Array.isArray(item)) continue;
     const rawType = Number(item[3]);
     if (rawType === 8) {
+      // Explicit page destinations are not part of the supported linear flow.
+      if (item[5] != null && item[5] !== -2) hasBranching = true;
       sections += 1;
       continue;
     }
     const answerGroups = item[4];
     if (!Array.isArray(answerGroups) || !Array.isArray(answerGroups[0])) continue;
     const definition = answerGroups[0] as unknown[];
+    if (Array.isArray(definition[1]) && definition[1].some((option: unknown) =>
+      Array.isArray(option) && option[2] != null && option[2] !== -2
+    )) hasBranching = true;
     const entryId = typeof definition[0] === 'number' || typeof definition[0] === 'string' ? String(definition[0]) : '';
     if (!/^\d+$/.test(entryId)) continue;
 
@@ -150,6 +167,7 @@ export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
       type,
       required: Boolean(definition[2]),
       options,
+      sectionIndex: sections,
       ...(['scale', 'rating'].includes(type) && options.length ? { min: Number(options[0]), max: Number(options.at(-1)) } : {}),
     });
     if (type === 'unsupported') warnings.push(`“${title}” memakai tipe pertanyaan yang belum didukung.`);
@@ -157,10 +175,13 @@ export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
 
   if (!questions.length) throw new Error('Tidak ada pertanyaan yang dapat dibaca dari form ini.');
   if (/type="file"|fileUpload/i.test(html)) warnings.push('Form memiliki upload file dan tidak dapat dijalankan oleh MVP.');
-  if (sections > 0) warnings.push(`${sections + 1} bagian terdeteksi. Form dengan beberapa bagian belum dapat dijalankan dengan aman.`);
+  if (sections > 1) warnings.push(`${sections + 1} bagian terdeteksi. Saat ini maksimal 2 bagian berurutan yang didukung.`);
+  if (hasBranching) warnings.push('Form memiliki percabangan atau tujuan bagian khusus. Gunakan alur berurutan tanpa percabangan.');
 
   const signature = questions.map(({ entryId, title, type, required, options }) => ({ entryId, title, type, required, options }));
-  const schemaHash = await sha256(JSON.stringify(signature));
+  const schemaHash = await sha256(JSON.stringify(sections > 0
+    ? { questions: signature, sections: questions.map((question) => question.sectionIndex), pageCount: sections + 1, hasBranching }
+    : signature));
   return {
     version: 1,
     ...normalized,
@@ -170,8 +191,24 @@ export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
     pageCount: sections + 1,
     questions,
     warnings,
-    supported: !questions.some((question) => question.type === 'unsupported') && !/type="file"|fileUpload/i.test(html) && sections === 0,
+    supported: !questions.some((question) => question.type === 'unsupported') && !/type="file"|fileUpload/i.test(html) && sections <= 1 && !hasBranching,
   };
+}
+
+export function buildSubmissionParams(schema: FormSchema, answers: Record<string, string | string[]>) {
+  if (!schema.supported || schema.pageCount < 1 || schema.pageCount > 2) throw new Error('Struktur form belum didukung.');
+  const params = new URLSearchParams();
+  params.set('fvv', '1');
+  params.set('pageHistory', Array.from({ length: schema.pageCount }, (_, index) => index).join(','));
+  for (const question of schema.questions) {
+    const answer = answers[question.columnKey];
+    const problem = validateAnswer(question, answer);
+    if (problem) throw new Error(`${question.columnKey} — ${problem}`);
+    for (const value of Array.isArray(answer) ? answer : [answer]) {
+      if (String(value ?? '').trim()) params.append(`entry.${question.entryId}`, String(value).trim());
+    }
+  }
+  return params;
 }
 
 export function validateAnswer(question: FormQuestion, answer: unknown): string | null {

@@ -110,7 +110,7 @@ Memiliki izin dari pemilik form dan ingin menjalankan kumpulan kasus pengujian y
 - CAPTCHA.
 - Grid pilihan ganda dan grid kotak centang.
 - Tanggal dan waktu.
-- Form dengan beberapa bagian, termasuk alur lurus dan percabangan.
+- Form dengan lebih dari 2 bagian. Form 1 atau 2 bagian berurutan tanpa percabangan didukung.
 - Percabangan berdasarkan jawaban.
 - Quiz dengan penguncian khusus atau feedback yang memengaruhi alur.
 - Form yang tidak dipublikasikan atau tidak dapat diakses dari browser pengujian.
@@ -118,7 +118,7 @@ Memiliki izin dari pemilik form dan ingin menjalankan kumpulan kasus pengujian y
 
 ### 8.3 Batas eksekusi awal
 
-- Maksimal 25 baris per job.
+- Tidak ada batas jumlah baris per job yang ditetapkan aplikasi.
 - Jeda minimum 2 detik antarrespons.
 - Maksimal satu job aktif per perangkat.
 - Maksimal satu percobaan ulang otomatis per baris untuk kegagalan jaringan yang jelas.
@@ -171,7 +171,7 @@ Sheet schema dilindungi dari pengeditan tidak sengaja, tetapi tidak digunakan se
 
 ### FR-04 — Upload dan validasi
 
-- Menerima `.xlsx` dengan batas ukuran awal 10 MB.
+- Menerima `.xlsx` tanpa batas ukuran file yang ditetapkan aplikasi.
 - Menolak macro-enabled workbook pada MVP.
 - Tidak mengeksekusi formula atau macro dari workbook.
 - Menampilkan kesalahan dengan nomor baris, kolom, nilai, dan alasan.
@@ -213,13 +213,13 @@ Sheet schema dilindungi dari pengeditan tidak sengaja, tetapi tidak digunakan se
 - **Frontend dan server lokal:** Next.js dengan TypeScript.
 - **Pengolahan Excel:** ExcelJS atau SheetJS pada proses lokal.
 - **Pembacaan form:** adapter schema untuk form publik melalui parser HTML yang diberi version check.
-- **Eksekusi:** adapter pengiriman lokal ke endpoint responder publik. Adapter menghentikan job jika halaman konfirmasi tidak dapat dikenali.
+- **Eksekusi:** adapter pengiriman lokal ke endpoint responder publik. Jika konfirmasi tidak dikenali, catat Belum terverifikasi dan lanjutkan baris berikutnya tanpa mengirim ulang.
 - **Queue:** satu antrean lokal berbasis SQLite.
 - **Penyimpanan:** direktori sementara lokal dan SQLite untuk status job.
 
 ### Alasan pemisahan adapter
 
-Google Forms API resmi menyediakan operasi untuk membaca isi form serta membaca respons, tetapi dokumentasi resminya tidak menyediakan metode untuk membuat sebuah respons. MVP tanpa OAuth membaca struktur form publik dan mengirim respons menggunakan adapter endpoint responder yang tidak resmi. Mekanisme ini dapat berubah sewaktu-waktu, sehingga aplikasi memakai pemeriksaan versi dan berhenti jika halaman konfirmasi tidak dikenali. Pemisahan adapter memungkinkan parser atau executor diperbarui tanpa mengubah format workbook dan UI.
+Google Forms API resmi menyediakan operasi untuk membaca isi form serta membaca respons, tetapi dokumentasi resminya tidak menyediakan metode untuk membuat sebuah respons. MVP tanpa OAuth membaca struktur form publik dan mengirim respons menggunakan adapter endpoint responder yang tidak resmi. Mekanisme ini dapat berubah sewaktu-waktu, sehingga aplikasi memakai pemeriksaan versi dan mencatat hasil sebagai Belum terverifikasi jika halaman konfirmasi tidak dikenali. Pemisahan adapter memungkinkan parser atau executor diperbarui tanpa mengubah format workbook dan UI.
 
 ### Versi hosted di masa depan
 
@@ -331,9 +331,9 @@ Layanan publik baru dipertimbangkan setelah tersedia:
 2. Aplikasi menghasilkan template dengan urutan dan aturan pilihan yang sesuai.
 3. Template yang diisi dapat diunggah dan divalidasi tanpa mengirim data.
 4. Perubahan form setelah template dibuat terdeteksi sebelum eksekusi.
-5. Pengguna dapat menjalankan 1–25 respons uji yang valid dengan jeda minimal 2 detik.
+5. Pengguna dapat menjalankan satu atau lebih respons uji yang valid dengan jeda minimal 2 detik.
 6. Setiap baris menghasilkan status yang dapat dilacak dengan Test Case ID.
-7. Job berhenti saat ditemukan login, CAPTCHA, fitur tidak didukung, atau status submit yang tidak pasti.
+7. Login, CAPTCHA, dan fitur tidak didukung tetap diblokir. Status submit yang tidak pasti dicatat sebagai Belum terverifikasi dan job lanjut tanpa konfirmasi per baris.
 8. Refresh UI tidak menyebabkan respons terkirim dua kali.
 9. Tidak ada file, jawaban, cookie, atau token yang keluar dari komputer pengguna pada mode lokal.
 
@@ -372,7 +372,7 @@ Layanan publik baru dipertimbangkan setelah tersedia:
 
 - UI empat langkah.
 - Dukungan tipe pertanyaan MVP.
-- Job 1–25 baris.
+- Job dengan jumlah baris sesuai file pengguna.
 - Progress real-time dan laporan hasil.
 - Deteksi schema berubah dan unsupported features.
 
@@ -403,7 +403,7 @@ Fase ini bersifat opsional dan baru diperlukan apabila produk diberikan kepada p
 1. Tipe pertanyaan mana yang paling penting setelah pilihan dasar dan skala linear?
 2. Apakah pengguna membutuhkan screenshot kegagalan?
 3. Apakah laporan hasil cukup CSV atau harus XLSX?
-4. Apakah batas 25 respons per job sudah sesuai untuk kebutuhan QA?
+4. Apakah pemrosesan Excel perlu dipindahkan ke worker agar antarmuka tetap responsif untuk file besar?
 5. Apakah form dengan percabangan harus ditolak seluruhnya atau didukung pada fase berikutnya?
 
 ## 21. Referensi teknis
