@@ -50,6 +50,37 @@ function statusBadge(status: RunStatus) {
   return <Badge variant="outline" className={classes[status]}>{labels[status]}</Badge>;
 }
 
+function csvCell(value: string) {
+  const safe = /^[=+@-]/.test(value.trimStart()) ? `'${value}` : value;
+  return `"${safe.replaceAll('"', '""')}"`;
+}
+
+function questionTypeLabel(type: FormSchema['questions'][number]['type']) {
+  const labels = {
+    short: 'Jawaban singkat', paragraph: 'Paragraf', multipleChoice: 'Pilihan ganda', dropdown: 'Dropdown',
+    checkboxes: 'Kotak centang', scale: 'Skala linear', rating: 'Rating', unsupported: 'Belum didukung',
+  } satisfies Record<FormSchema['questions'][number]['type'], string>;
+  return labels[type];
+}
+
+const sentLedgerPrefix = 'gform-autofill:sent:';
+
+function readSentTestCases(schemaHash: string) {
+  try {
+    const stored = sessionStorage.getItem(`${sentLedgerPrefix}${schemaHash}`);
+    const values = stored ? JSON.parse(stored) : [];
+    return new Set(Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function rememberSentTestCase(schemaHash: string, testCaseId: string) {
+  const sent = readSentTestCases(schemaHash);
+  sent.add(testCaseId);
+  sessionStorage.setItem(`${sentLedgerPrefix}${schemaHash}`, JSON.stringify([...sent]));
+}
+
 export default function Home() {
   const [step, setStep] = useState(1);
   const [formUrl, setFormUrl] = useState('');
@@ -107,7 +138,11 @@ export default function Home() {
       if (!file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Pilih file .xlsx yang dibuat oleh aplikasi ini.');
       if (file.size > 10 * 1024 * 1024) throw new Error('Ukuran file maksimal 10 MB.');
       const parsed = await parseWorkbook(file, schema);
-      setFileName(file.name); setRows(parsed.rows); setIssues(parsed.issues); setResults([]); setStep(3);
+      const sentTestCases = readSentTestCases(schema.schemaHash);
+      const duplicateIssues = parsed.rows
+        .filter((row) => sentTestCases.has(row.testCaseId))
+        .map((row) => ({ row: row.rowNumber, column: 'Test Case ID', message: 'Sudah terkirim pada sesi browser ini. Gunakan ID baru untuk mencegah duplikasi.' }));
+      setFileName(file.name); setRows(parsed.rows); setIssues([...parsed.issues, ...duplicateIssues]); setResults([]); setStep(3);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Excel tidak dapat dibaca.'); }
     finally { setBusy(false); }
   }
@@ -130,6 +165,7 @@ export default function Home() {
         const data = await response.json() as { status?: RunStatus; message?: string; error?: string };
         const status: RunStatus = data.status || (response.ok ? 'unknown' : 'failed');
         next[index] = { testCaseId: rows[index].testCaseId, status, message: data.message || data.error || 'Tidak ada pesan hasil.' };
+        if (status === 'sent') rememberSentTestCase(schema.schemaHash, rows[index].testCaseId);
         setResults([...next]);
         if (status === 'unknown') {
           stopRef.current = true;
@@ -147,9 +183,9 @@ export default function Home() {
   }
 
   function downloadReport() {
-    const csv = ['Test Case ID,Status,Pesan', ...results.map((result) => [result.testCaseId, result.status, result.message].map((value) => `"${value.replaceAll('"', '""')}"`).join(','))].join('\r\n');
+    const csv = ['Test Case ID,Status,Pesan', ...results.map((result) => [result.testCaseId, result.status, result.message].map(csvCell).join(','))].join('\r\n');
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
     link.download = `laporan-gform-${Date.now()}.csv`; link.click(); URL.revokeObjectURL(link.href);
   }
 
@@ -209,10 +245,10 @@ export default function Home() {
             <Card className="app-card"><CardContent className="p-0">
               <SectionBar title={schema.title} trailing={<Badge variant="secondary">{schema.questions.length} pertanyaan</Badge>} />
               <div className="space-y-6 p-6 sm:p-8">
-                {!schema.supported && <Alert className="border-red-200 bg-red-50 text-red-950"><AlertTriangle className="size-4" /><AlertTitle>Form belum dapat dijalankan</AlertTitle><AlertDescription>Masih ada tipe pertanyaan yang belum didukung. Template dapat diperiksa, tetapi eksekusi dinonaktifkan.</AlertDescription></Alert>}
+                {!schema.supported && <Alert className="border-red-200 bg-red-50 text-red-950"><AlertTriangle className="size-4" /><AlertTitle>Form belum dapat dijalankan</AlertTitle><AlertDescription>Masih ada struktur atau tipe pertanyaan yang belum didukung. Template dapat diperiksa, tetapi eksekusi dinonaktifkan.</AlertDescription></Alert>}
                 {schema.warnings.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="font-semibold text-amber-950">Catatan kompatibilitas</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-amber-900/80">{schema.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
                 <div className="grid gap-3 sm:grid-cols-3"><Metric label="Bagian" value={String(schema.pageCount)} /><Metric label="Wajib" value={String(schema.questions.filter((q) => q.required).length)} /><Metric label="Didukung" value={String(schema.questions.filter((q) => q.type !== 'unsupported').length)} /></div>
-                <div className="max-h-60 overflow-auto rounded-xl border border-border"><Table><TableHeader><TableRow><TableHead>Kode</TableHead><TableHead>Pertanyaan</TableHead><TableHead>Tipe</TableHead></TableRow></TableHeader><TableBody>{schema.questions.map((question) => <TableRow key={question.columnKey}><TableCell className="font-mono text-xs">{question.columnKey}</TableCell><TableCell>{question.title}{question.required && <span className="ml-1 text-red-600">*</span>}</TableCell><TableCell><Badge variant="outline">{question.type}</Badge></TableCell></TableRow>)}</TableBody></Table></div>
+                <div className="max-h-60 overflow-auto rounded-xl border border-border"><Table><TableHeader><TableRow><TableHead>Kode</TableHead><TableHead>Pertanyaan</TableHead><TableHead>Tipe</TableHead></TableRow></TableHeader><TableBody>{schema.questions.map((question) => <TableRow key={question.columnKey}><TableCell className="font-mono text-xs">{question.columnKey}</TableCell><TableCell>{question.title}{question.required && <span className="ml-1 text-red-600">*</span>}</TableCell><TableCell><Badge variant="outline">{questionTypeLabel(question.type)}</Badge></TableCell></TableRow>)}</TableBody></Table></div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Button variant="outline" size="lg" className="h-auto justify-start gap-3 p-4" onClick={() => downloadTemplate(schema)}><Download className="size-5 text-primary" /><span className="text-left"><span className="block font-semibold">Unduh template Excel</span><span className="block text-xs font-normal text-muted-foreground">Sudah berisi pilihan dan satu contoh</span></span></Button>
                   <Label className="flex h-auto cursor-pointer items-center justify-start gap-3 rounded-lg bg-primary p-4 text-primary-foreground hover:bg-primary/90"><Upload className="size-5" /><span><span className="block font-semibold">Unggah Excel yang sudah diisi</span><span className="block text-xs font-normal opacity-80">Maksimal 10 MB dan 25 baris</span></span><input className="sr-only" type="file" accept=".xlsx" onChange={(event) => uploadWorkbook(event.target.files?.[0])} /></Label>
@@ -263,5 +299,5 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function CompatibilityNote({ compact = false }: { compact?: boolean }) {
-  return <div className="compatibility-note"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-amber-700" /><div><p className="font-semibold text-amber-950">Hanya untuk form yang bisa diisi berulang</p>{!compact && <p className="mt-1 text-sm leading-6 text-amber-900/80">Form harus dapat dibuka tanpa login dan pengaturan “Batasi ke 1 respons” harus nonaktif. Login, CAPTCHA, percabangan kompleks, dan upload file tidak didukung.</p>}</div></div>;
+  return <div className="compatibility-note"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-amber-700" /><div><p className="font-semibold text-amber-950">Hanya untuk form yang bisa diisi berulang</p>{!compact && <p className="mt-1 text-sm leading-6 text-amber-900/80">Form harus satu bagian, dapat dibuka tanpa login, dan pengaturan “Batasi ke 1 respons” harus nonaktif. Login, CAPTCHA, dan upload file tidak didukung.</p>}</div></div>;
 }

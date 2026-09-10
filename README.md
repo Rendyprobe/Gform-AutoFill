@@ -4,7 +4,7 @@
 
 Versi utama sekarang berada di folder [`webapp`](./webapp). Aplikasi membaca Google Form yang dipilih, membuat template Excel sesuai pertanyaannya, memvalidasi file yang diunggah kembali, lalu menjalankan respons uji secara bertahap.
 
-Baca [`webapp/README.md`](./webapp/README.md) sebelum memakai aplikasi. Versi web **hanya untuk form publik yang dapat diisi berkali-kali oleh orang yang sama**. Form dengan opsi **Batasi ke 1 respons**, login wajib, CAPTCHA, upload file, atau percabangan kompleks tidak didukung.
+Baca [`webapp/README.md`](./webapp/README.md) sebelum memakai aplikasi. Versi web **hanya untuk form publik satu bagian yang dapat diisi berkali-kali oleh orang yang sama**. Form dengan opsi **Batasi ke 1 respons**, login wajib, CAPTCHA, upload file, atau beberapa bagian tidak didukung.
 
 Jalankan versi web di Windows dengan membuka `webapp/start-app.bat`, lalu buka `http://localhost:3000`.
 

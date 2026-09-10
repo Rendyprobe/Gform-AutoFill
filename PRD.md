@@ -101,8 +101,7 @@ Memiliki izin dari pemilik form dan ingin menjalankan kumpulan kasus pengujian y
 - Dropdown.
 - Kotak centang tanpa opsi `Lainnya` yang membutuhkan struktur khusus.
 - Skala linear.
-- Tanggal dan waktu sederhana.
-- Beberapa bagian yang berjalan lurus tanpa percabangan.
+- Rating.
 
 ### 8.2 Belum didukung pada MVP
 
@@ -110,6 +109,8 @@ Memiliki izin dari pemilik form dan ingin menjalankan kumpulan kasus pengujian y
 - Form yang wajib login atau membatasi satu respons per akun.
 - CAPTCHA.
 - Grid pilihan ganda dan grid kotak centang.
+- Tanggal dan waktu.
+- Form dengan beberapa bagian, termasuk alur lurus dan percabangan.
 - Percabangan berdasarkan jawaban.
 - Quiz dengan penguncian khusus atau feedback yang memengaruhi alur.
 - Form yang tidak dipublikasikan atau tidak dapat diakses dari browser pengujian.

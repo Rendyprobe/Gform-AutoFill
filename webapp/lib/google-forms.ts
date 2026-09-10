@@ -36,6 +36,9 @@ const typeMap: Record<number, QuestionType> = {
   18: 'rating',
 };
 
+const formFetchTimeoutMs = 15_000;
+const maxFormHtmlCharacters = 5 * 1024 * 1024;
+
 function cleanText(value: unknown): string {
   const text = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
   return text
@@ -97,16 +100,24 @@ function optionsFrom(definition: unknown): string[] {
 
 export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
   const normalized = normalizeFormUrl(inputUrl);
-  const response = await fetch(normalized.formUrl, {
-    redirect: 'follow',
-    headers: { 'user-agent': 'Gform-AutoFill/0.1 (+local testing tool)' },
-  });
+  let response: Response;
+  try {
+    response = await fetch(normalized.formUrl, {
+      redirect: 'follow',
+      headers: { 'user-agent': 'Gform-AutoFill/0.1 (+local testing tool)' },
+      signal: AbortSignal.timeout(formFetchTimeoutMs),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') throw new Error('Google Form tidak merespons dalam 15 detik.');
+    throw new Error('Google Form tidak dapat dihubungi. Periksa koneksi internet lalu coba lagi.');
+  }
   if (!response.ok) throw new Error(`Google Form tidak dapat dibuka (HTTP ${response.status}).`);
   if (new URL(response.url).hostname !== 'docs.google.com') {
     throw new Error('Form mengarahkan ke halaman login. Form seperti ini belum didukung.');
   }
 
   const html = await response.text();
+  if (html.length > maxFormHtmlCharacters) throw new Error('Ukuran Google Form terlalu besar untuk diproses dengan aman.');
   const root = extractLoadData(html);
   const form = root[1] as unknown[];
   const items = Array.isArray(form?.[1]) ? (form[1] as unknown[][]) : [];
@@ -146,7 +157,7 @@ export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
 
   if (!questions.length) throw new Error('Tidak ada pertanyaan yang dapat dibaca dari form ini.');
   if (/type="file"|fileUpload/i.test(html)) warnings.push('Form memiliki upload file dan tidak dapat dijalankan oleh MVP.');
-  if (sections > 0) warnings.push(`${sections + 1} bagian terdeteksi. Hanya alur lurus tanpa percabangan yang didukung.`);
+  if (sections > 0) warnings.push(`${sections + 1} bagian terdeteksi. Form dengan beberapa bagian belum dapat dijalankan dengan aman.`);
 
   const signature = questions.map(({ entryId, title, type, required, options }) => ({ entryId, title, type, required, options }));
   const schemaHash = await sha256(JSON.stringify(signature));
@@ -159,7 +170,7 @@ export async function fetchFormSchema(inputUrl: string): Promise<FormSchema> {
     pageCount: sections + 1,
     questions,
     warnings,
-    supported: !questions.some((question) => question.type === 'unsupported') && !/type="file"|fileUpload/i.test(html),
+    supported: !questions.some((question) => question.type === 'unsupported') && !/type="file"|fileUpload/i.test(html) && sections === 0,
   };
 }
 

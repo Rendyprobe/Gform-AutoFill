@@ -98,6 +98,7 @@ export async function parseWorkbook(file: File, activeSchema: FormSchema) {
   const rows: TestRow[] = [];
   const issues: ValidationIssue[] = [];
   const seen = new Set<string>();
+  if (responseSheet.rowCount > 1000) throw new Error('Sheet memiliki terlalu banyak baris. Hapus baris atau format kosong di bawah data lalu coba lagi.');
   for (let rowNumber = 2; rowNumber <= responseSheet.rowCount; rowNumber += 1) {
     const row = responseSheet.getRow(rowNumber);
     const testCaseId = cellText(row.getCell(1));

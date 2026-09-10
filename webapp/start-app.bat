@@ -9,8 +9,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist node_modules (
-  echo Memasang dependency untuk pertama kali...
+where npm.cmd >nul 2>nul
+if errorlevel 1 (
+  echo npm belum tersedia. Instal ulang Node.js dengan npm, lalu buka kembali file ini.
+  pause
+  exit /b 1
+)
+
+if not exist "node_modules\.bin\vinext.cmd" (
+  echo Memasang dependency yang belum lengkap...
   call npm.cmd install
   if errorlevel 1 (
     echo Instalasi gagal. Periksa koneksi internet dan pesan error di atas.
@@ -24,4 +31,11 @@ echo Gform-AutoFill akan tersedia di http://localhost:3000
 echo Tekan Ctrl+C untuk menghentikan aplikasi.
 echo.
 call npm.cmd run dev
+if errorlevel 1 (
+  echo.
+  echo Aplikasi gagal dijalankan. Periksa pesan error di atas.
+  echo Untuk memperbaiki dependency, jalankan npm.cmd install di folder webapp.
+  pause
+  exit /b 1
+)
 endlocal

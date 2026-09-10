@@ -13,7 +13,7 @@ Pastikan pengaturan form memenuhi semua syarat berikut:
 - Opsi **Batasi ke 1 respons** atau **Limit to 1 response** dalam keadaan nonaktif.
 - Form tidak menggunakan upload file.
 - Form tidak menampilkan CAPTCHA.
-- Jika form terdiri dari beberapa bagian, alurnya harus lurus tanpa percabangan berdasarkan jawaban.
+- Form hanya terdiri dari satu bagian. Form multi-bagian diblokir sementara sampai alurnya dapat diverifikasi dengan aman.
 
 Jangan memakai aplikasi ini untuk form pihak lain tanpa izin, membuat respons yang disamarkan sebagai responden nyata, atau memanipulasi hasil survei. Setiap baris sebaiknya memakai `Test Case ID` dengan awalan `TEST-` agar respons pengujian mudah dikenali.
 
@@ -41,11 +41,14 @@ http://localhost:3000
 Masuk ke folder `webapp`, lalu jalankan:
 
 ```powershell
-npm install
-npm run dev
+npm.cmd install
+npm.cmd run dev
 ```
 
 Buka `http://localhost:3000` pada browser. Untuk menghentikan aplikasi, tekan `Ctrl+C` di terminal.
+
+Di Windows PowerShell, gunakan `npm.cmd` seperti di atas. Di macOS/Linux, gunakan `npm`.
+Biarkan jendela terminal tetap terbuka selama aplikasi dipakai.
 
 ## Cara menggunakan
 
@@ -67,6 +70,7 @@ Buka `http://localhost:3000` pada browser. Untuk menghentikan aplikasi, tekan `C
 ## Format Excel
 
 - `Test Case ID` harus terisi dan unik pada setiap baris.
+- `Test Case ID` yang sudah berhasil dikirim dalam sesi browser yang sama akan ditolak untuk mencegah pengiriman ganda. Gunakan ID baru bila memang ingin menjalankan kasus baru.
 - Pertanyaan wajib ditandai dengan `*` pada header.
 - Pilihan harus sama persis dengan opsi dari Google Form.
 - Untuk pertanyaan kotak centang, pisahkan beberapa pilihan menggunakan karakter `|`.
@@ -95,7 +99,6 @@ Didukung pada versi awal:
 - Kotak centang.
 - Skala linear.
 - Rating (termasuk skala 1–10).
-- Form dengan beberapa bagian yang berjalan lurus.
 
 Belum didukung:
 
@@ -105,6 +108,7 @@ Belum didukung:
 - CAPTCHA.
 - Grid pilihan ganda atau grid kotak centang.
 - Tanggal dan waktu.
+- Form dengan beberapa bagian, termasuk yang memiliki percabangan.
 - Percabangan bagian berdasarkan jawaban.
 - Form yang tidak dipublikasikan.
 
@@ -113,6 +117,18 @@ Belum didukung:
 File Excel dibaca di browser pada komputer pengguna. Aplikasi tidak mempunyai akun pengguna atau penyimpanan cloud. Ketika job dijalankan, nilai jawaban dikirim langsung oleh server lokal ke URL Google Form tujuan. Jangan masukkan kata sandi, token, data finansial, kesehatan, atau data pribadi sensitif sebagai data pengujian.
 
 ## Pemecahan masalah
+
+### File BAT menutup atau muncul 'vinext' is not recognized
+
+Dependency belum terpasang lengkap. Buka PowerShell di folder `webapp`, lalu jalankan:
+
+```powershell
+npm.cmd install
+npm.cmd run dev
+```
+
+File `start-app.bat` juga akan mencoba instalasi jika peluncur `vinext.cmd` belum ada,
+dan menahan jendela tetap terbuka jika aplikasi gagal agar pesan error dapat dibaca.
 
 ### Form mengarah ke login
 
@@ -146,5 +162,17 @@ Lalu buka `http://localhost:3001`.
 npm run build
 npm start
 ```
+
+## Pemeriksaan pengembang
+
+Sebelum menggabungkan perubahan, jalankan:
+
+```powershell
+npm run lint
+npm test
+npm run build
+```
+
+GitHub Actions menjalankan ketiga pemeriksaan tersebut pada setiap push dan pull request.
 
 Versi ini dirancang untuk penggunaan lokal. Jangan mempublikasikannya sebagai layanan umum tanpa autentikasi, pembatasan penggunaan, audit log, dan perlindungan anti-penyalahgunaan tambahan.
